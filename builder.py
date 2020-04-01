@@ -3,8 +3,10 @@ from itertools import product
 from matrx import WorldBuilder
 import numpy as np
 from matrx.goals import LimitedTimeGoal
+from matrx.grid_world import GridWorld
 from matrx.objects import SquareBlock, AreaTile
 from matrx.world_builder import RandomProperty
+from matrx.goals import UseCaseGoal
 
 
 def calculate_world_size(nr_rooms, room_size, hallway_space, nr_drop_zones, nr_blocks_needed, rooms_per_row):
@@ -61,7 +63,8 @@ def create_builder():
     np.random.seed(random_seed)
 
     # Get world size
-    world_size = calculate_world_size(nr_rooms, room_size, hallway_space, nr_drop_zones, nr_blocks_needed, rooms_per_row)
+    world_size = calculate_world_size(nr_rooms, room_size, hallway_space, nr_drop_zones, nr_blocks_needed,
+                                      rooms_per_row)
 
     # Create the goal
     # TODO
@@ -127,7 +130,7 @@ def create_builder():
     for nr_zone in range(nr_drop_zones):
         # Add the zone's tiles
         builder.add_area((x, y - nr_blocks_needed + 1), width=1, height=nr_blocks_needed, name=f"Drop off {nr_zone}",
-                         visualize_colour=drop_off_color)
+                         visualize_colour=drop_off_color, zone_nr=nr_zone)
         # Go through all needed blocks
         for nr_block in range(nr_blocks_needed):
             # Create a MATRX random property of shape and color so each world varies
@@ -147,3 +150,19 @@ def create_builder():
 
     # Return the builder
     return builder
+
+
+class CollectionGoal(UseCaseGoal):
+
+    def __init__(self):
+        super().__init__()
+
+        # list of all drop of locations, each locations consisting of the tile's id and desirable block and current
+        # block on that tile (if any)
+        self.drop_off = None
+
+    def goal_reached(self, grid_world: GridWorld):
+        if self.drop_off is None:  # find all drop off locations and its tile ID's
+            all_obj = grid_world.environment_objects
+            for obj_id, obj in all_obj.items():
+                pass
