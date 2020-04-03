@@ -2,7 +2,9 @@ import os
 
 from builder import create_builder
 
+
 if __name__ == "__main__":
+
     # Create our world builder
     builder = create_builder()
 

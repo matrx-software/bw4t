@@ -8,12 +8,12 @@ from matrx.actions import MoveNorth, OpenDoorAction, CloseDoorAction
 from matrx.actions.move_actions import MoveEast, MoveSouth, MoveWest
 from matrx.agents import AgentBrain, HumanAgentBrain, SenseCapability
 from matrx.grid_world import GridWorld, DropObject, GrabObject, AgentBody
-from matrx.objects import SquareBlock, AreaTile, EnvObject
+from matrx.objects import EnvObject
 from matrx.world_builder import RandomProperty
 from matrx.goals import UseCaseGoal
 
 # Some general settings
-tick_duration = 0.1
+tick_duration = 2
 random_seed = 1
 verbose = False
 key_action_map = {  # For the human agents
@@ -28,10 +28,10 @@ key_action_map = {  # For the human agents
 }
 
 # Some BW4T settings
-room_size = (8, 8)  # width, height
-nr_rooms = 24
-rooms_per_row = 6
-average_blocks_per_room = 10
+room_size = (4, 4)  # width, height
+nr_rooms = 2
+rooms_per_row = 2
+average_blocks_per_room = 3
 block_shapes = [0, 1]
 block_colors = ['#0008ff', '#ff1500', '#0dff00']
 room_colors = ['#0008ff', '#ff1500', '#0dff00']
@@ -44,9 +44,11 @@ hallway_space = 2
 nr_teams = 1
 agents_per_team = 2
 human_agents_per_team = 1
-agent_sense_range = 12  # the range with which agents detect other agents
-block_sense_range = 8  # the range with which agents detect blocks
+agent_sense_range = 2  # the range with which agents detect other agents
+block_sense_range = 2  # the range with which agents detect blocks
 other_sense_range = np.inf  # the range with which agents detect other objects (walls, doors, etc.)
+agent_memory_decay = 5  # we want to memorize states for seconds / tick_duration ticks
+fov_occlusion = True
 
 
 def calculate_world_size():
@@ -149,7 +151,8 @@ def add_agents(builder):
 
         # Add human agents
         for human_agent_nr in range(human_agents_per_team):
-            brain = HumanAgentBrain(max_carry_objects=1, grab_range=0, drop_range=0)
+            brain = HumanAgentBrain(max_carry_objects=1, grab_range=0, drop_range=0, fov_occlusion=fov_occlusion,
+                                    state_memory_decay=agent_memory_decay)
             loc = (loc[0] + 1, loc[1])
             builder.add_human_agent(loc, brain, team=team_name, name=f"Human {human_agent_nr} in {team_name}",
                                     key_action_map=key_action_map, sense_capability=sense_capability)
