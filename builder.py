@@ -1,3 +1,4 @@
+import itertools
 from collections import OrderedDict
 from itertools import product
 
@@ -5,15 +6,50 @@ from matrx import WorldBuilder
 import numpy as np
 from matrx.actions import MoveNorth, OpenDoorAction, CloseDoorAction
 from matrx.actions.move_actions import MoveEast, MoveSouth, MoveWest
-from matrx.agents import AgentBrain, HumanAgentBrain
-from matrx.goals import LimitedTimeGoal
-from matrx.grid_world import GridWorld, DropObject, GrabObject
+from matrx.agents import AgentBrain, HumanAgentBrain, SenseCapability
+from matrx.grid_world import GridWorld, DropObject, GrabObject, AgentBody
 from matrx.objects import SquareBlock, AreaTile, EnvObject
 from matrx.world_builder import RandomProperty
 from matrx.goals import UseCaseGoal
 
+# Some general settings
+tick_duration = 0.1
+random_seed = 1
+verbose = False
+key_action_map = {  # For the human agents
+    'w': MoveNorth.__name__,
+    'd': MoveEast.__name__,
+    's': MoveSouth.__name__,
+    'a': MoveWest.__name__,
+    'q': GrabObject.__name__,
+    'e': DropObject.__name__,
+    'r': OpenDoorAction.__name__,
+    'f': CloseDoorAction.__name__,
+}
 
-def calculate_world_size(nr_rooms, room_size, hallway_space, nr_drop_zones, nr_blocks_needed, rooms_per_row):
+# Some BW4T settings
+room_size = (8, 8)  # width, height
+nr_rooms = 24
+rooms_per_row = 6
+average_blocks_per_room = 10
+block_shapes = [0, 1]
+block_colors = ['#0008ff', '#ff1500', '#0dff00']
+room_colors = ['#0008ff', '#ff1500', '#0dff00']
+wall_color = "#8a8a8a"
+drop_off_color = "#878787"
+block_size = 0.5
+nr_drop_zones = 1
+nr_blocks_needed = 3
+hallway_space = 2
+nr_teams = 1
+agents_per_team = 2
+human_agents_per_team = 1
+agent_sense_range = 12  # the range with which agents detect other agents
+block_sense_range = 8  # the range with which agents detect blocks
+other_sense_range = np.inf  # the range with which agents detect other objects (walls, doors, etc.)
+
+
+def calculate_world_size():
     nr_room_rows = np.ceil(nr_rooms / rooms_per_row)
 
     # calculate the total width
@@ -26,146 +62,80 @@ def calculate_world_size(nr_rooms, room_size, hallway_space, nr_drop_zones, nr_b
     return int(world_width), int(world_height)
 
 
-def get_room_locations(room_loc, door_loc, room_size):
-    # We always assume that locations where we can position blocks are not behind the door and as maximum as possible,
-    # meaning that we will position blocks in rows with one gap in between.
-    locs = []
+def get_room_loc(room_nr):
+    row = np.floor(room_nr / rooms_per_row)
+    column = room_nr % rooms_per_row
 
-    for y in range(door_loc[1] - 1, room_loc[1],
-                   -2):  # all rows starting from the row closest to door and skipping one each time
-        for x in range(room_loc[0] + 1, door_loc[0]):  # all locations left to door
-            locs.append((x, y))
+    # x is: +1 for the edge, +edge hallway, +room width * column nr, +1 off by one
+    room_x = int(1 + hallway_space + (room_size[0] * column) + 1)
 
-        for x in range(door_loc[0] + 1, room_loc[0] + room_size[0] - 1):  # all locations left to door
-            locs.append((x, y))
+    # y is: +1 for the edge, +hallway space * (nr row + 1 for the top hallway), +row * room height, +1 off by one
+    room_y = int(1 + hallway_space * (row + 1) + row * room_size[1] + 1)
 
-    return locs
+    # door location is always center bottom
+    door_x = room_x + int(np.ceil(room_size[0] / 2))
+    door_y = room_y + room_size[1] - 1
+
+    return (room_x, room_y), (door_x, door_y)
 
 
-def create_builder():
-    # Some general settings
-    tick_duration = 0.2
-    random_seed = 1
-    verbose = False
-    key_action_map = {  # For the human agents
-        'w': MoveNorth.__name__,
-        'd': MoveEast.__name__,
-        's': MoveSouth.__name__,
-        'a': MoveWest.__name__,
-        'q': GrabObject.__name__,
-        'e': DropObject.__name__,
-        'r': OpenDoorAction.__name__,
-        'f': CloseDoorAction.__name__,
-    }
-
-    # Some BW4T settings
-    room_size = (5, 5)  # width, height
-    nr_rooms = 3
-    rooms_per_row = 3
-    average_blocks_per_room = 3
-    block_shapes = [0, ]
-    block_colors = ['#0008ff', '#ff1500', '#0dff00']
-    room_colors = ['#0008ff', '#ff1500', '#0dff00']
-    wall_color = "#8a8a8a"
-    drop_off_color = "#878787"
-    block_size = 0.5
-    nr_drop_zones = 1
-    nr_blocks_needed = 3
-    hallway_space = 2
-    nr_teams = 1
-    agents_per_team = 2
-    human_agents_per_team = 1
-
-    # Set numpy's random generator
-    np.random.seed(random_seed)
-
-    # Get world size
-    world_size = calculate_world_size(nr_rooms, room_size, hallway_space, nr_drop_zones, nr_blocks_needed,
-                                      rooms_per_row)
-
-    # Create the goal
-    goal = CollectionGoal()
-
-    # Get the world builder
-    builder = WorldBuilder(shape=world_size, tick_duration=tick_duration, random_seed=random_seed, run_matrx_api=True,
-                           run_matrx_visualizer=True, verbose=verbose, simulation_goal=goal)
-
-    # Add the world bounds
-    builder.add_room(top_left_location=(0, 0), width=world_size[0], height=world_size[1], name="world_bounds")
-
-    # Create the rooms
-    room_locations = {}
-    for room_nr in range(nr_rooms):
-        row = np.floor(room_nr / rooms_per_row)
-        column = room_nr % rooms_per_row
-
-        # x is: +1 for the edge, +edge hallway, +room width * column nr, +1 off by one
-        room_x = int(1 + hallway_space + (room_size[0] * column) + 1)
-
-        # y is: +1 for the edge, +hallway space * (nr row + 1 for the top hallway), +row * room height, +1 off by one
-        room_y = int(1 + hallway_space * (row + 1) + row * room_size[1] + 1)
-
-        # door location is always center bottom
-        door_x = room_x + int(np.ceil(room_size[0] / 2))
-        door_y = room_y + room_size[1] - 1
-
-        # Select random room color
-        np.random.shuffle(room_colors)
-        room_color = room_colors[0]
-
-        # Add the room
-        room_name = f"room_{room_nr}"
-        builder.add_room(top_left_location=(room_x, room_y), width=room_size[0], height=room_size[1], name=room_name,
-                         door_locations=[(door_x, door_y)], wall_visualize_colour=wall_color,
-                         with_area_tiles=True, area_visualize_colour=room_color, area_visualize_opacity=0.1)
-
-        # Find all inner room locations where we allow objects (making sure that the location behind to door is free)
-        block_locations = get_room_locations((room_x, room_y), (door_x, door_y), room_size)
-        room_locations[room_name] = block_locations
-
-    # Add the collectible objects, we do so probabilistically so each world will contain different blocks
+def add_blocks(builder, room_locations):
     for room_name, locations in room_locations.items():
         for loc in locations:
-            # Get the block's properties
+            # Get the block's name
             name = f"Block in {room_name}"
 
-            # Get the probability so we have on average the requested number of blocks per room
+            # Get the probability for adding a block so we get the on average the requested number of blocks per room
             prob = min(1.0, average_blocks_per_room / len(locations))
 
-            # Create a MATRX random property of shape and color so each world varies
+            # Create a MATRX random property of shape and color so each block varies per created world.
+            # These random property objects are used to obtain a certain value each time a new world is
+            # created from this builder.
             colour_property = RandomProperty(values=block_colors)
             shape_property = RandomProperty(values=block_shapes)
 
-            # Add the block
-            builder.add_object_prospect(loc, name, probability=prob, visualize_shape=shape_property,
-                                        visualize_colour=colour_property, is_movable=True,
-                                        visualize_size=block_size, is_block=True, is_traversable=True)
+            # Add the block; a regular SquareBlock as denoted by the given 'callable_class' which the
+            # builder will use to create the object. In addition to setting MATRX properties, we also
+            # provide a `is_block` boolean as custom property so we can identify this as a collectible
+            # block.
+            builder.add_object_prospect(loc, name, callable_class=CollectableBlock, probability=prob,
+                                        visualize_shape=shape_property, visualize_colour=colour_property)
 
-    # Create the drop-off zones, this includes generating the random colour/shape combinations to collect.
+
+def add_drop_off_zones(builder, world_size):
     x = int(np.ceil(world_size[0] / 2)) - (int(np.floor(nr_drop_zones / 2)) * (hallway_space + 1))
     y = world_size[1] - 1 - 1  # once for off by one, another for world bound
     for nr_zone in range(nr_drop_zones):
-        # Add the zone's tiles
+        # Add the zone's tiles. Area tiles are special types of objects in MATRX that simply function as
+        # a kind of floor. They are always traversable and cannot be picked up.
         builder.add_area((x, y - nr_blocks_needed + 1), width=1, height=nr_blocks_needed, name=f"Drop off {nr_zone}",
-                         visualize_colour=drop_off_color, drop_zone_nr=nr_zone, is_drop_zone=True, is_goal_block=False)
+                         visualize_colour=drop_off_color, drop_zone_nr=nr_zone, is_drop_zone=True, is_goal_block=False,
+                         is_collectable=False)
+
         # Go through all needed blocks
         for nr_block in range(nr_blocks_needed):
-            # Create a MATRX random property of shape and color so each world varies
+            # Create a MATRX random property of shape and color so each world contains different blocks to collect
             colour_property = RandomProperty(values=block_colors)
             shape_property = RandomProperty(values=block_shapes)
 
-            # Add a 'ghost image' of the block that should be collected
+            # Add a 'ghost image' of the block that should be collected. This can be seen by both humans and agents to
+            # know what should be collected in what order.
             loc = (x, y - nr_block)
-            builder.add_object(loc, name="Collect Block", visualize_colour=colour_property,
-                               visualize_shape=shape_property, visualize_size=block_size,
-                               visualize_opacity=0.4, visualize_depth=85, is_movable=False,
-                               is_traversable=True, drop_zone_nr=nr_zone, is_drop_zone=False,
-                               is_goal_block=True)
+            builder.add_object(loc, name="Collect Block", callable_class=GhostBlock,
+                               visualize_colour=colour_property, visualize_shape=shape_property,
+                               drop_zone_nr=nr_zone)
 
         # Change the x to the next zone
         x = x + hallway_space + 1
 
-    # Add the agents and human agents to the top row of the world
+
+def add_agents(builder):
+    # Create the agents sense capability. This is a circular range around the agent that denotes what it can perceive.
+    # Here, we separated
+    sense_capability = SenseCapability({AgentBody: agent_sense_range,
+                                        CollectableBlock: block_sense_range,
+                                        None: other_sense_range})
+
     loc = (0, 1)  # we begin adding agents to the top left, x is zero because we add +1 each time we add an agent
     for team in range(nr_teams):
         team_name = f"Team {team}"
@@ -174,17 +144,87 @@ def create_builder():
         for agent_nr in range(nr_agents):
             brain = BlockWorldAgent()
             loc = (loc[0] + 1, loc[1])
-            builder.add_agent(loc, brain, team=team_name, name=f"Agent {agent_nr} in {team_name}")
+            builder.add_agent(loc, brain, team=team_name, name=f"Agent {agent_nr} in {team_name}",
+                              sense_capability=sense_capability)
 
         # Add human agents
         for human_agent_nr in range(human_agents_per_team):
             brain = HumanAgentBrain(max_carry_objects=1, grab_range=0, drop_range=0)
             loc = (loc[0] + 1, loc[1])
             builder.add_human_agent(loc, brain, team=team_name, name=f"Human {human_agent_nr} in {team_name}",
-                                    key_action_map=key_action_map)
+                                    key_action_map=key_action_map, sense_capability=sense_capability)
+
+
+def add_rooms(builder):
+    room_locations = {}
+    for room_nr in range(nr_rooms):
+        room_top_left, door_loc = get_room_loc(room_nr)
+
+        # We assign a simple random color to each room. Not for any particular reason except to brighting up the place.
+        np.random.shuffle(room_colors)
+        room_color = room_colors[0]
+
+        # Add the room
+        room_name = f"room_{room_nr}"
+        builder.add_room(top_left_location=room_top_left, width=room_size[0], height=room_size[1], name=room_name,
+                         door_locations=[door_loc], wall_visualize_colour=wall_color,
+                         with_area_tiles=True, area_visualize_colour=room_color, area_visualize_opacity=0.1)
+
+        # Find all inner room locations where we allow objects (making sure that the location behind to door is free)
+        room_locations[room_name] = builder.get_room_locations(room_top_left, room_size[0], room_size[1])
+
+    return room_locations
+
+
+def create_builder():
+
+    # Set numpy's random generator
+    np.random.seed(random_seed)
+
+    # Get world size
+    world_size = calculate_world_size()
+
+    # Create the goal
+    goal = CollectionGoal()
+
+    # Create our world builder
+    builder = WorldBuilder(shape=world_size, tick_duration=tick_duration, random_seed=random_seed, run_matrx_api=True,
+                           run_matrx_visualizer=True, verbose=verbose, simulation_goal=goal)
+
+    # Add the world bounds (not needed, as agents cannot 'walk off' the grid, but for visual effects)
+    builder.add_room(top_left_location=(0, 0), width=world_size[0], height=world_size[1], name="world_bounds")
+
+    # Create the rooms
+    room_locations = add_rooms(builder)
+
+    # Add the collectible objects, we do so probabilistically so each world will contain different blocks
+    add_blocks(builder, room_locations)
+
+    # Create the drop-off zones, this includes generating the random colour/shape combinations to collect.
+    add_drop_off_zones(builder, world_size)
+
+    # Add the agents and human agents to the top row of the world
+    add_agents(builder)
 
     # Return the builder
     return builder
+
+
+class CollectableBlock(EnvObject):
+    def __init__(self, location, name, visualize_colour, visualize_shape):
+        super().__init__(location, name, is_traversable=True, is_movable=True,
+                         visualize_colour=visualize_colour, visualize_shape=visualize_shape,
+                         visualize_size=block_size, class_callable=CollectableBlock,
+                         is_drop_zone=False, is_goal_block=False, is_collectable=True)
+
+
+class GhostBlock(EnvObject):
+    def __init__(self, location, drop_zone_nr, name, visualize_colour, visualize_shape):
+        super().__init__(location, name, is_traversable=True, is_movable=False,
+                         visualize_colour=visualize_colour, visualize_shape=visualize_shape,
+                         visualize_size=block_size, class_callable=CollectableBlock,
+                         visualize_depth=85, drop_zone_nr=drop_zone_nr, visualize_opacity=0.5,
+                         is_drop_zone=False, is_goal_block=True, is_collectable=False)
 
 
 class CollectionGoal(UseCaseGoal):
@@ -271,7 +311,7 @@ class CollectionGoal(UseCaseGoal):
                 all_objs = grid_world.environment_objects
                 obj_ids = grid_world.get_objects_in_range(loc, object_type=EnvObject, sense_range=0)
                 blocks = [all_objs[obj_id] for obj_id in obj_ids
-                          if obj_id in all_objs.keys() and "is_block" in all_objs[obj_id].properties.keys()]
+                          if obj_id in all_objs.keys() and "is_collectable" in all_objs[obj_id].properties.keys()]
 
                 # Check if there is a block, and if so if it is the right one and the tick is not yet set, then set the
                 # current tick.
