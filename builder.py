@@ -10,7 +10,7 @@ from matrx.agents import AgentBrain, HumanAgentBrain, SenseCapability
 from matrx.grid_world import GridWorld, DropObject, GrabObject, AgentBody
 from matrx.objects import EnvObject
 from matrx.world_builder import RandomProperty
-from matrx.goals import UseCaseGoal
+from matrx.goals import WorldGoal
 
 # Some general settings
 tick_duration = 2
@@ -230,7 +230,7 @@ class GhostBlock(EnvObject):
                          is_drop_zone=False, is_goal_block=True, is_collectable=False)
 
 
-class CollectionGoal(UseCaseGoal):
+class CollectionGoal(WorldGoal):
 
     def __init__(self):
         super().__init__()
