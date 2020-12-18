@@ -13,7 +13,7 @@ from matrx.world_builder import RandomProperty
 from matrx.goals import WorldGoal
 
 # Some general settings
-tick_duration = 2
+tick_duration = 0.1
 random_seed = 1
 verbose = False
 key_action_map = {  # For the human agents
@@ -28,9 +28,9 @@ key_action_map = {  # For the human agents
 }
 
 # Some BW4T settings
-room_size = (4, 4)  # width, height
-nr_rooms = 2
-rooms_per_row = 2
+room_size = (6, 4)  # width, height
+nr_rooms = 9
+rooms_per_row = 3
 average_blocks_per_room = 3
 block_shapes = [0, 1]
 block_colors = ['#0008ff', '#ff1500', '#0dff00']
@@ -151,8 +151,7 @@ def add_agents(builder):
 
         # Add human agents
         for human_agent_nr in range(human_agents_per_team):
-            brain = HumanAgentBrain(max_carry_objects=1, grab_range=0, drop_range=0, fov_occlusion=fov_occlusion,
-                                    state_memory_decay=agent_memory_decay)
+            brain = HumanAgentBrain(max_carry_objects=1, grab_range=0, drop_range=0, fov_occlusion=fov_occlusion)
             loc = (loc[0] + 1, loc[1])
             builder.add_human_agent(loc, brain, team=team_name, name=f"Human {human_agent_nr} in {team_name}",
                                     key_action_map=key_action_map, sense_capability=sense_capability)
@@ -315,6 +314,7 @@ class CollectionGoal(WorldGoal):
                 obj_ids = grid_world.get_objects_in_range(loc, object_type=EnvObject, sense_range=0)
                 blocks = [all_objs[obj_id] for obj_id in obj_ids
                           if obj_id in all_objs.keys() and "is_collectable" in all_objs[obj_id].properties.keys()]
+                blocks = [b for b in blocks if b.properties["is_collectable"]]
 
                 # Check if there is a block, and if so if it is the right one and the tick is not yet set, then set the
                 # current tick.
