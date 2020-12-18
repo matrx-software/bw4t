@@ -13,6 +13,8 @@ from matrx.world_builder import RandomProperty
 from matrx.goals import WorldGoal
 
 # Some general settings
+from agent_stub import BlockWorldAgent
+
 tick_duration = 0.1
 random_seed = 1
 verbose = False
@@ -347,18 +349,3 @@ class CollectionGoal(WorldGoal):
             is_satisfied = is_satisfied and zone_satisfied
 
         return is_satisfied, progress
-
-
-class BlockWorldAgent(AgentBrain):
-
-    def __init__(self):
-        super().__init__()
-
-    def initialize(self):
-        pass
-
-    def filter_observations(self, state):
-        return state
-
-    def decide_on_action(self, state):
-        return None, {}
